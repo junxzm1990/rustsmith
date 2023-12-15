@@ -35,6 +35,7 @@ data class FunctionDefinition(
 
 fun collectStructTypes(type: Type): MutableSet<StructType> {
     var curStructList = mutableSetOf<StructType>()
+    // println("          ${type::class}")
     when (type) {
         is StructType -> {
             curStructList.add(type)
@@ -52,6 +53,7 @@ fun collectStructTypes(type: Type): MutableSet<StructType> {
         is BoxType -> curStructList.addAll(collectStructTypes(type.internalType))
         is OptionType -> curStructList.addAll(collectStructTypes(type.type))
         is TypeAliasType -> curStructList.addAll(collectStructTypes(type.internalType))
+        is LifetimeParameterizedType<*> -> curStructList.addAll(collectStructTypes(type.type))
         else -> {
         }
     }
@@ -61,10 +63,18 @@ fun collectStructTypes(type: Type): MutableSet<StructType> {
 data class StructDefinition(val structType: LifetimeParameterizedType<StructType>, val methods: MutableList<FunctionDefinition> = mutableListOf()) : ASTNode {
     override fun toRust(): String {
         var returnStructList = mutableSetOf<StructType>()
+        // get the struct types of the return type of each method
         methods.forEach { method ->
             returnStructList.addAll(collectStructTypes(method.returnType))
         }
-        returnStructList.addAll(collectStructTypes(structType.type))
+
+        // println("Begin --------${structType.type.toRust()}")
+        // get the struct types defined inside the current struct
+        structType.type.types.forEach { intype ->
+            // println("${intype.first}${intype.second::class}")
+            returnStructList.addAll(collectStructTypes(intype.second))
+        }
+        // println("End --------")
         val traits = "#[near_bindgen]\n#[derive(BorshDeserialize, BorshSerialize)]\n"
         val pubtraits = "#[derive(BorshDeserialize, BorshSerialize, Serialize)]\n"
         val macros = "#[near_bindgen]\n"
@@ -78,7 +88,7 @@ data class StructDefinition(val structType: LifetimeParameterizedType<StructType
             return structDef + defaultMethod + implDef
         } */
 
-        if (returnStructList.size > 1) {
+        if (returnStructList.size > 0) {
             val structDef = "struct ${structType.type.structName}$parameterizedSyntax {\n${structType.type.types.joinToString("\n") { "${it.first}: ${it.second.toRust()}," }}\n}\n"
 
             val defaultMethod = "impl Default for ${structType.type.structName}{\nfn default() -> Self {\n${structType.type.defaultMethod}\n}\n}"

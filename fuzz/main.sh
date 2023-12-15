@@ -2,6 +2,21 @@
 
 RUST_GENERATOR_DIR=$1
 RUST_CONTRACT_DIR=$2
+NUM_PROG_BATCH=$3
+NEAR_DIFF_PROG=$4
+
+
+
+export NEAR_DIFF_PROG
+export RUST_CONTRACT_DIR
+
+
+test_rust_func() {
+	$NEAR_DIFF_PROG $RUST_CONTRACT_DIR/target/wasm32-unknown-unknown/release/contract.wasm $1
+	exit $?
+}
+
+export -f test_rust_func
 
 while true; do
 
@@ -11,7 +26,7 @@ while true; do
 	rm -rf $RUST_GENERATOR_DIR/outRust
 
 	#genenrate a new batch of Rust programs
-	timeout 20 $RUST_GENERATOR_DIR/rustsmith -n 10
+	$RUST_GENERATOR_DIR/rustsmith -n $NUM_PROG_BATCH
 
 	for prog in $RUST_GENERATOR_DIR/outRust/file*/file*.rs; do
 		echo $prog
@@ -20,12 +35,14 @@ while true; do
 		rm $RUST_CONTRACT_DIR/target/wasm32-unknown-unknown/release/contract.wasm
 		cargo build --target wasm32-unknown-unknown --release > /dev/null 2>&1
 		if test -e "$RUST_CONTRACT_DIR/target/wasm32-unknown-unknown/release/contract.wasm"; then
-			echo "File exists"
+			wasm2wat $RUST_CONTRACT_DIR/target/wasm32-unknown-unknown/release/contract.wasm | grep export | grep fun | grep -o '".*"' | awk '{print substr($0, 2, length($0)-2)}' | parallel --halt now,fail=1 'test_rust_func {} || exit $?'
+			if [ $? -ne 0 ]; then
+				echo "Diff Detected!!!"
+				echo $prog
+				exit
+			fi
 		else
 			echo "compilation error"
-			exit 
 		fi
 	done
-
-	break
 done
