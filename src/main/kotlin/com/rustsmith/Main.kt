@@ -80,7 +80,7 @@ class RustSmith : CliktCommand(name = "rustsmith") {
                     val reconditioner = Reconditioner()
                     try {
                         val (generatedProgram, cliArguments) = generateProgram(randomSeed, identGenerator, failFast)
-                        if (generatedProgram.toRust().count { char -> char == '\n' } > 20000) continue
+                        if (generatedProgram.toRust().count { char -> char == '\n' } > 10000) continue
                         val program = reconditioner.recondition(generatedProgram)
                         if (print) {
                             println(program.toRust())

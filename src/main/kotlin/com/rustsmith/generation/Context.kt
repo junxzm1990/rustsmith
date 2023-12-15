@@ -26,7 +26,7 @@ data class Context(
     val numberOfArrayTypesDefined = lazy { symbolTable.globalSymbolTable.vectorTypes.size }
 
     fun withLifetimeRequirement(lifetimeRequirement: Int): Context {
-        return this.copy(lifetimeRequirement = lifetimeRequirement)
+        return this.copy(lifetimeRequirement = null)
     }
 
     fun addFailedNode(failedNode: KClass<out ASTNode>): Context {

@@ -40,6 +40,16 @@ class ASTGenerator(
             currentCtx = currentCtx.incrementStatementCount(statement)
             if (statement::class in BlockEndingStatement::class.subclasses()) break
         }
+      /*   val iterator = symbolTable.globalSymbolTable.structs.iterator()
+        while (iterator.hasNext()) {
+            try {
+                val shadowStruct = iterator.next().copy(defaltMethod = "Test")
+                generateStructInstantiationExpression(shadowStruct.structType.type, ctx.forNewStatement())
+            } catch (e: NoAvailableExpressionException) {
+                println("Caught NoAvailableExpressionException")
+            } catch (e: NoSuchElementException) {
+            }
+        } */
         val statementsWithDependants = dependantStatements + statements
         return if (type == VoidType) {
             StatementBlock(statementsWithDependants, symbolTable)
@@ -318,9 +328,16 @@ class ASTGenerator(
     /** Expression generation **/
 
     override fun selectRandomExpression(type: Type, ctx: Context): KClass<out Expression> {
+
         val availableExpressionsWeightings = selectionManager.availableExpressionsWeightings(ctx, type)
-        val pickRandomByWeight = availableExpressionsWeightings.pickRandomByWeight()
-        Logger.logText("Picking expression $pickRandomByWeight for type:${type.toRust()}", ctx, Color.GREEN)
+        var pickRandomByWeight = availableExpressionsWeightings.pickRandomByWeight()
+        while (true) {
+            if (pickRandomByWeight != CLIArgumentAccessExpression::class) {
+                Logger.logText("Picking expression $pickRandomByWeight for type:${type.toRust()}", ctx, Color.GREEN)
+                break
+            }
+            pickRandomByWeight = availableExpressionsWeightings.pickRandomByWeight()
+        }
         return pickRandomByWeight
     }
 
@@ -1048,11 +1065,7 @@ class ASTGenerator(
         val functionName = identGenerator.generateFunctionName()
         val functionDefinition = FunctionDefinition(
             returnType, functionName,
-            arguments + mapOf(
-                "hasher" to MutableReferenceType(
-                    DefaultHasher, symbolTable.depth.value.toUInt()
-                )
-            ),
+            arguments,
             ASTGenerator(bodySymbolTable, failFast, identGenerator)(
                 ctx.incrementCount(FunctionCallExpression::class).resetContextForFunction()
                     .setReturnExpressionType(returnType).withSymbolTable(bodySymbolTable)
@@ -1070,12 +1083,16 @@ class ASTGenerator(
 
     private fun generateMethod(returnType: Type, ctx: Context): Pair<StructType, FunctionDefinition> {
         val structType = generateStructType(ctx.incrementCount(MethodCallExpression::class))
-        val numArgs = CustomRandom.nextInt(5)
+        val numArgs = CustomRandom.nextInt(2)
         val argTypes = (0 until numArgs).map { generateType(ctx.incrementCount(FunctionType::class)) }
+
         val symbolTableForFunction = SymbolTable(
             symbolTable.root(), symbolTable.functionSymbolTable, symbolTable.globalSymbolTable
         )
-        val arguments = argTypes.associateBy { identGenerator.generateVariable() }
+        val argumentsTmp = argTypes.associateBy { identGenerator.generateVariable() }
+        val arguments = argumentsTmp.filterNot { (key, value) ->
+            true
+        }
         symbolTableForFunction["self"] =
             IdentifierData(ReferenceType(structType, symbolTable.depth.value.toUInt()), false, OwnershipState.VALID, 0)
         arguments.forEach {
@@ -1085,11 +1102,7 @@ class ASTGenerator(
         val functionName = identGenerator.generateFunctionName()
         val functionDefinition = FunctionDefinition(
             returnType, functionName,
-            arguments + mapOf(
-                "hasher" to MutableReferenceType(
-                    DefaultHasher, symbolTable.depth.value.toUInt()
-                )
-            ),
+            arguments,
             ASTGenerator(bodySymbolTable, failFast, identGenerator)(
                 ctx.incrementCount(MethodCallExpression::class).resetContextForFunction()
                     .setReturnExpressionType(returnType).withSymbolTable(bodySymbolTable)
@@ -1318,6 +1331,35 @@ class ASTGenerator(
         }
     }
 
+    private fun structLiteral(ctx: Context, type: Type): String {
+        return when (type) {
+            VoidType -> generateVoidLiteral(type, ctx).toRust()
+            BoolType -> generateBooleanLiteral(type, ctx).toRust()
+            StringType -> generateStringLiteral(type, ctx).toRust()
+            F32Type -> generateFloat32Literal(type, ctx).toRust()
+            F64Type -> generateFloat64Literal(type, ctx).toRust()
+            I8Type -> generateInt8Literal(type, ctx).toRust()
+            I16Type -> generateInt16Literal(type, ctx).toRust()
+            I32Type -> generateInt32Literal(type, ctx).toRust()
+            I64Type -> generateInt64Literal(type, ctx).toRust()
+            I128Type -> generateInt128Literal(type, ctx).toRust()
+            U8Type -> generateUInt8Literal(type, ctx).toRust()
+            U16Type -> generateUInt16Literal(type, ctx).toRust()
+            U32Type -> generateUInt32Literal(type, ctx).toRust()
+            U64Type -> generateUInt64Literal(type, ctx).toRust()
+            U128Type -> generateUInt128Literal(type, ctx).toRust()
+            USizeType -> generateUSizeLiteral(type, ctx).toRust()
+            is TupleType -> "(${type.types.joinToString(" ") { "${structLiteral(ctx, it)}," }})"
+            is StaticSizedArrayType -> generateStaticSizedArrayLiteral(type, ctx).toRust()
+            is VectorType -> "vec![${(0 until CustomRandom.nextInt(1, 10)).map { structLiteral(ctx, type.type) }.joinToString(", ")}]"
+            is BoxType -> "Box::new(${structLiteral(ctx, type.internalType)})"
+            is OptionType -> "Some(${structLiteral(ctx, type.type)})"
+            is StructType -> "${type.structName}{\n${type.types.joinToString(" ") { "${it.first}: ${structLiteral(ctx, it.second)}," }}}"
+            is TypeAliasType -> structLiteral(ctx, type.internalType)
+            else -> throw Exception("Type of myInt: ${type::class}")
+        }
+    }
+
     private fun createNewStructType(ctx: Context, specificType: Type? = null): StructType {
         val structName = identGenerator.generateStructName()/* Generate Struct Definition */
         val numArgs = CustomRandom.nextInt(1, 5)
@@ -1325,14 +1367,24 @@ class ASTGenerator(
             identGenerator.generateVariable() to generateType(ctx.incrementCount(StructType::class))
         }.toMutableList()
 
+        val condition: (Pair<String, Type>) -> Boolean = { pair ->
+            pair.second.lifetimeParameters().isNotEmpty() || pair.second is TypeAliasType
+        }
+
+        argTypes.removeIf(condition)
+
         if (specificType != null) {
             argTypes += identGenerator.generateVariable() to specificType
         }
 
-        val structType = StructType(structName, argTypes)
+        val structTypeTmp = StructType(structName, argTypes)
+        val defaultMethod = structLiteral(ctx, structTypeTmp) // JX: add default method
+        val structType = StructType(structName, argTypes, defaultMethod = defaultMethod)
+
         symbolTable.globalSymbolTable[structName] =
             IdentifierData(structType, false, OwnershipState.VALID, symbolTable.depth.value)
         symbolTable.globalSymbolTable.addStruct(StructDefinition(wrapWithLifetimeParameters(structType.clone()) as LifetimeParameterizedType<StructType>))
+
         return structType
     }
 
