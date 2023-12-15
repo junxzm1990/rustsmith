@@ -80,7 +80,7 @@ data class PrintElementStatement(
     override val symbolTable: SymbolTable
 ) : Statement {
     override fun toRust(): String {
-        return "format!(\"{:?}\", $variableName).hash(hasher);"
+        return ";"
     }
 }
 
@@ -103,10 +103,10 @@ data class Output(override val symbolTable: SymbolTable, val programSeed: Long) 
     override fun toRust(): String {
         val hashString = mutableListOf<String>()
         symbolTable.getOwnedVariables().sorted().forEach {
-            hashString.add("format!(\"{:?}\", $it).hash(hasher);")
+            // hashString.add("format!(\"{:?}\", $it).hash(hasher);")
         }
-        hashString.add("println!(\"Program Seed: {:?}\", ${programSeed}i64);")
-        hashString.add("println!(\"{:?}\", hasher.finish());")
+        // hashString.add("println!(\"Program Seed: {:?}\", ${programSeed}i64);")
+        // hashString.add("println!(\"{:?}\", hasher.finish());")
         return hashString.joinToString("\n")
     }
 }

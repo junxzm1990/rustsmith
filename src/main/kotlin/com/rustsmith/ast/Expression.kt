@@ -127,7 +127,7 @@ data class USizeLiteral(val value: ULong, override val symbolTable: SymbolTable)
     LiteralExpression {
 
     override fun toRust(): String {
-        return "${value}usize"
+        return "${value.toUInt()}usize"
     }
 }
 
@@ -441,7 +441,7 @@ data class FunctionCallExpression(
 ) : RecursiveExpression {
 
     override fun toRust(): String {
-        val arguments = args.map { it.toRust() } + "hasher"
+        val arguments = args.map { it.toRust() } // + "hasher"
         return "$functionName(${arguments.joinToString(",") { it }})"
     }
 }
@@ -456,7 +456,7 @@ data class MethodCallExpression(
 ) : RecursiveExpression {
 
     override fun toRust(): String {
-        val arguments = args.map { it.toRust() } + "hasher"
+        val arguments = args.map { it.toRust() } // + "hasher"
         return "${structExpression.toRust()}.$methodName(${arguments.joinToString(",") { it }})"
     }
 }

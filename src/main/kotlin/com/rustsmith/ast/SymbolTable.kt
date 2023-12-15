@@ -65,6 +65,7 @@ class FunctionSymbolTable {
 class GlobalSymbolTable {
     private val symbolMap = mutableMapOf<String, IdentifierData>()
     val structs = mutableSetOf<StructDefinition>()
+    val shadowstructs = mutableSetOf<StructDefinition>()
     val tupleTypes = mutableSetOf<TupleType>()
     val vectorTypes = mutableSetOf<Type>()
     val optionTypes = mutableSetOf<Type>()
@@ -115,6 +116,7 @@ class GlobalSymbolTable {
 
     fun addMethod(structType: StructType, method: FunctionDefinition) {
         structs.find { it.structType.type.structName == structType.structName }!!.methods.add(method)
+        structs.find { it.structType.type.structName == structType.structName }!!.structType.type.methodNum += 1
     }
 
     fun getRandomMethodOfType(type: Type): Pair<StructType, FunctionDefinition>? {

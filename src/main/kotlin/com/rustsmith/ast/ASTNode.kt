@@ -19,21 +19,80 @@ data class FunctionDefinition(
     val addSelfVariable: Boolean
 ) : ASTNode {
     override fun toRust(): String {
-        val inline = if (forceNoInline) "#[inline(never)]" else ""
+        val inline = "" // if (forceNoInline) "#[inline(never)]" else ""
         val self = if (addSelfVariable) "&self," else ""
-        return "$inline\nfn $functionName($self ${
-        arguments.map { "${it.key}: ${it.value.toRust()}" }.joinToString(", ")
-        }) -> ${returnType.toRust()} {\n${body.toRust()}\n}\n"
+        if (addSelfVariable) {
+            return "$inline\npub fn $functionName($self ${
+            arguments.map { "${it.key}: ${it.value.toRust()}" }.joinToString(", ")
+            }) -> ${returnType.toRust()} {\n${body.toRust()}\n}\n"
+        } else {
+            return "$inline\nfn $functionName($self ${
+            arguments.map { "${it.key}: ${it.value.toRust()}" }.joinToString(", ")
+            }) -> ${returnType.toRust()} {\n${body.toRust()}\n}\n"
+        }
     }
+}
+
+fun collectStructTypes(type: Type): MutableSet<StructType> {
+    var curStructList = mutableSetOf<StructType>()
+    when (type) {
+        is StructType -> {
+            curStructList.add(type)
+            type.types.forEach { intype ->
+                curStructList.addAll(collectStructTypes(intype.second))
+            }
+        }
+        is TupleType -> {
+            type.types.forEach { intype ->
+                curStructList.addAll(collectStructTypes(intype))
+            }
+        }
+        is StaticSizedArrayType -> curStructList.addAll(collectStructTypes(type.internalType))
+        is VectorType -> curStructList.addAll(collectStructTypes(type.type))
+        is BoxType -> curStructList.addAll(collectStructTypes(type.internalType))
+        is OptionType -> curStructList.addAll(collectStructTypes(type.type))
+        is TypeAliasType -> curStructList.addAll(collectStructTypes(type.internalType))
+        else -> {
+        }
+    }
+    return curStructList
 }
 
 data class StructDefinition(val structType: LifetimeParameterizedType<StructType>, val methods: MutableList<FunctionDefinition> = mutableListOf()) : ASTNode {
     override fun toRust(): String {
-        val traits = "#[derive(Debug)]\n"
+        var returnStructList = mutableSetOf<StructType>()
+        methods.forEach { method ->
+            returnStructList.addAll(collectStructTypes(method.returnType))
+        }
+        returnStructList.addAll(collectStructTypes(structType.type))
+        val traits = "#[near_bindgen]\n#[derive(BorshDeserialize, BorshSerialize)]\n"
+        val pubtraits = "#[derive(BorshDeserialize, BorshSerialize, Serialize)]\n"
+        val macros = "#[near_bindgen]\n"
+        val pubmacros = "#[serde(crate = \"near_sdk::serde\")]\n"
         val parameterizedSyntax = if (structType.lifetimeParameters().isNotEmpty()) "<${structType.lifetimeParameters().toSet().joinToString(",") { "'a$it" }}>" else ""
+
+        /* if (structType.type.methodNum == 0) {
+            val structDef = "${pubtraits}${pubmacros}pub struct ${structType.type.structName}$parameterizedSyntax {\n${structType.type.types.joinToString("\n") { "${it.first}: ${it.second.toRust()}," }}\n}\n"
+            val defaultMethod = ""
+            val implDef = ""
+            return structDef + defaultMethod + implDef
+        } */
+
+        if (returnStructList.size > 1) {
+            val structDef = "struct ${structType.type.structName}$parameterizedSyntax {\n${structType.type.types.joinToString("\n") { "${it.first}: ${it.second.toRust()}," }}\n}\n"
+
+            val defaultMethod = "impl Default for ${structType.type.structName}{\nfn default() -> Self {\n${structType.type.defaultMethod}\n}\n}"
+
+            val implDef = "\nimpl$parameterizedSyntax ${structType.type.structName}$parameterizedSyntax {\n ${methods.joinToString("\n") { it.toRust() }} \n}"
+            return structDef + defaultMethod + implDef
+        }
+
         val structDef = "${traits}struct ${structType.type.structName}$parameterizedSyntax {\n${structType.type.types.joinToString("\n") { "${it.first}: ${it.second.toRust()}," }}\n}\n"
-        val implDef = "\nimpl$parameterizedSyntax ${structType.type.structName}$parameterizedSyntax {\n ${methods.joinToString("\n") { it.toRust() }} \n}"
-        return structDef + implDef
+
+        val defaultMethod = "impl Default for ${structType.type.structName}{\nfn default() -> Self {\n${structType.type.defaultMethod}\n}\n}"
+
+        val implDef = "\n${macros}impl$parameterizedSyntax ${structType.type.structName}$parameterizedSyntax {\n ${methods.joinToString("\n") { it.toRust() }} \n}"
+        return structDef + defaultMethod + implDef
     }
 }
 
@@ -54,7 +113,7 @@ data class Program(
 ) :
     ASTNode {
     override fun toRust(): String {
-        return "#![allow(warnings, unused, unconditional_panic)]\nuse std::env;\nuse std::collections::hash_map::DefaultHasher;\nuse std::hash::{Hash, Hasher};\n${constants.joinToString("\n") { it.toRust() }}\n${macros.joinToString("\n") { it.toRust() }}\n${structs.joinToString("\n") { it.toRust() }}\n${aliases.joinToString("\n") { it.toRust() }}\n${
+        return "use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};\nuse near_sdk::serde::Serialize;\nuse near_sdk::{env, AccountId, Balance, near_bindgen};\nuse near_sdk::collections::{Vector};\nuse near_sdk::json_types::{U128};\n${constants.joinToString("\n") { it.toRust() }}\n${macros.joinToString("\n") { it.toRust() }}\n${structs.joinToString("\n") { it.toRust() }}\n${aliases.joinToString("\n") { it.toRust() }}\n${
         functions.joinToString(
             "\n"
         ) { it.toRust() }
@@ -81,5 +140,5 @@ fun generateProgram(programSeed: Long, identGenerator: IdentGenerator, failFast:
         addSelfVariable = false
     )
     val cliArguments = symbolTable.globalSymbolTable.commandLineTypes.map { astGenerator.generateCLIArgumentsForLiteralType(it, mainFunctionContext) }
-    return Program(programSeed, setOf(), constantDeclarations, globalSymbolTable.typeAliases.toList(), globalSymbolTable.structs.toList(), functionSymbolTable.functions + mainFunction) to cliArguments
+    return Program(programSeed, setOf(), constantDeclarations, globalSymbolTable.typeAliases.toList(), globalSymbolTable.structs.toList(), functionSymbolTable.functions) to cliArguments
 }

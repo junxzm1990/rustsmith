@@ -314,7 +314,9 @@ data class StructType(
     val structName: String,
     val types: List<Pair<String, Type>>,
     override val argumentsToOwnershipMap: MutableList<Pair<Type, OwnershipState>> = types.map { it.second to OwnershipState.VALID }
-        .toMutableList()
+        .toMutableList(),
+    var defaultMethod: String = "",
+    var methodNum: Int = 0
 ) : RecursiveType, ContainerType {
     override fun toRust(): String {
         return structName
@@ -324,12 +326,13 @@ data class StructType(
 
     override fun lifetimeParameters(): List<UInt> = types.flatMap { it.second.lifetimeParameters() }
 
-    override fun clone() = StructType(structName, types.map { it.first to it.second.clone() })
+    override fun clone() = StructType(structName, types.map { it.first to it.second.clone() }, defaultMethod = defaultMethod)
 
     override fun snapshot(): StructType = StructType(
         structName,
         types.map { it.first to it.second.snapshot() },
-        argumentsToOwnershipMap.map { it.first.snapshot() to it.second }.toMutableList()
+        argumentsToOwnershipMap.map { it.first.snapshot() to it.second }.toMutableList(),
+        defaultMethod
     )
 
     override fun equals(other: Any?): Boolean {
