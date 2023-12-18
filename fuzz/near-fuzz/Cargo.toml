@@ -1,0 +1,30 @@
+[package]
+name = "near-fuzz"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+afl = "*"
+arbitrary.workspace = true
+libfuzzer-sys.workspace = true
+wasm-smith.workspace = true
+wasmprinter.workspace = true
+
+near-primitives.workspace = true
+near-test-contracts.workspace = true
+near-vm-runner.workspace = true
+near-store.workspace = true
+
+[[bin]]
+name = "diffrun"
+path = "fuzz_targets/main1.rs"
+test = false
+doc = false
